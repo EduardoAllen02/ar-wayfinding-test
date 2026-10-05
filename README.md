@@ -26,4 +26,4 @@ respecto al anterior; el primero, respecto a hacia donde miras.
 | `color=debug` | puntos en magenta |
 | `sim=sala` | espacio virtual simulado (cámara y sensores falsos, en el navegador del ordenador) |
 
-`xr/` es el motor de 8th Wall, sin modificar, con sus avisos de licencia.
+`xr/` es el motor de 8th Wall, sin modificar.
