@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0f0e">
+<link rel="icon" href="data:,">
+<title>Puntos en el suelo · prueba AR</title>
+<style>
+:root{
+  --bg:#0b0f0e; --panel:#121a18ee; --panel2:#1c2724; --line:#2c3a36;
+  --ink:#e8efec; --ink2:#93a49f; --ink3:#63736f;
+  --ok:#3ecf9a; --bad:#ff6b5e; --warn:#ffbb44; --acc:#27e0b0;
+  --mono:ui-monospace,"SF Mono",Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+  font:15px/1.4 var(--sans);touch-action:manipulation}
+canvas#c{position:fixed;left:0;top:0;display:block;background:#000}
+button{font:inherit;color:inherit;border:0;border-radius:10px;padding:11px 14px;cursor:pointer;
+  background:var(--acc);color:#04130e;font-weight:600}
+button.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);font-weight:500}
+button:disabled{background:#222c29;color:var(--ink3)}
+input[type=text]{font:16px var(--mono);width:100%;padding:11px 12px;border-radius:10px;
+  background:#0a100f;border:1px solid var(--line);color:var(--ink)}
+.mono{font-family:var(--mono)}
+
+/* ---- pantalla de entrada ---- */
+#pre{position:fixed;inset:0;z-index:5;display:flex;flex-direction:column;justify-content:center;
+  gap:18px;padding:max(24px,env(safe-area-inset-top)) 22px 24px;background:var(--bg);overflow:auto}
+#pre h1{font-size:25px;margin:0 0 4px;letter-spacing:-.01em}
+#pre .sub{color:var(--ink2);margin:0;max-width:34em}
+.check{display:grid;gap:7px;font:12.5px var(--mono);background:var(--panel2);
+  border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.check div{display:flex;justify-content:space-between;gap:10px}
+.check b.yes{color:var(--ok)} .check b.no{color:var(--bad)} .check b.wait{color:var(--ink3)}
+.note{font-size:13px;color:var(--ink2);margin:0}
+#go{width:100%;padding:15px;font-size:17px}
+label.altura{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;color:var(--ink2)}
+label.altura input{width:84px;font:16px var(--mono);padding:9px 10px;border-radius:10px;background:#0a100f;
+  border:1px solid var(--line);color:var(--ink);text-align:right}
+
+/* ---- AR ---- */
+#ov{position:fixed;inset:0;z-index:3;pointer-events:none;display:none}
+#ov.on{display:block}
+#ov>*{pointer-events:auto}
+#hud{position:absolute;left:10px;top:max(10px,env(safe-area-inset-top));right:10px;
+  display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 11px;border-radius:12px;
+  background:#000a;backdrop-filter:blur(8px);font:12px var(--mono);color:var(--ink2);pointer-events:none}
+#hud b{color:var(--ink);font-weight:600}
+#hud b.ok{color:var(--ok)} #hud b.warn{color:var(--warn)} #hud b.bad{color:var(--bad)}
+#msg{position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:84%;padding:10px 14px;
+  border-radius:12px;background:#000c;text-align:center;font-size:14px;opacity:0;transition:opacity .25s;
+  pointer-events:none}
+#msg.on{opacity:1}
+#panel{position:absolute;left:0;right:0;bottom:0;padding:12px 12px max(12px,env(safe-area-inset-bottom));
+  background:var(--panel);backdrop-filter:blur(12px);border-radius:18px 18px 0 0;
+  display:grid;gap:10px;border-top:1px solid var(--line);transition:transform .25s}
+#panel.cerrado{transform:translateY(calc(100% - 44px))}
+#asa{justify-self:center;width:54px;height:6px;border-radius:3px;background:var(--ink3);margin:-2px 0 2px;cursor:pointer}
+.fila{display:flex;gap:8px;align-items:center}
+.fila.chips{flex-wrap:wrap}
+.chip{padding:8px 11px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);
+  color:var(--ink);font:13px var(--sans);font-weight:500}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border-radius:0;background:var(--panel2);color:var(--ink2);padding:8px 12px;font-weight:500}
+.seg button.on{background:var(--acc);color:#04130e;font-weight:700}
+.sw{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink2)}
+.sw input{accent-color:var(--acc);width:18px;height:18px}
+label.rango{display:flex;align-items:center;gap:10px;font:12.5px var(--mono);color:var(--ink2)}
+label.rango input{flex:1;accent-color:var(--acc)}
+.fila.acciones button{flex:1}
+
+/* ---- verdad del simulador (solo con ?sim) ---- */
+#verdad{position:fixed;right:8px;top:70px;z-index:6;display:none;width:38vw;max-width:220px;
+  border:2px solid #0008;border-radius:8px;background:#000;overflow:hidden}
+#verdad canvas{display:block;width:100%}
+#verdad small{display:block;font:10px var(--mono);padding:3px 6px;color:#9fe;background:#012}
+body.sim #verdad{display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="pre">
+  <div>
+    <h1>Puntos en el suelo</h1>
+    <p class="sub">Prueba del AR con 8th Wall. Mira al suelo, toca <b>Entrar</b> y coloca una guía:
+      los puntos se quedan en su sitio mientras caminas. No hace falta calibrar nada antes.</p>
+  </div>
+  <div class="check">
+    <div><span>motor 8th Wall</span><b class="wait" id="c-xr">…</b></div>
+    <div><span>módulo SLAM</span><b class="wait" id="c-slam">…</b></div>
+    <div><span>sensores de movimiento</span><b class="wait" id="c-mov">…</b></div>
+    <div><span>conexión segura (HTTPS)</span><b class="wait" id="c-https">…</b></div>
+  </div>
+  <label class="altura">Altura a la que llevas el móvil
+    <span><input id="altura" type="number" inputmode="numeric" min="80" max="200" step="5" value="140"> cm</span>
+  </label>
+  <p class="note" style="margin-top:-8px">Con esto 1 unidad del AR vale 1 m de verdad (la separación de los puntos sale en metros).
+    De pie suele ser 130–150; sentado o en silla, 90–110. Se fija al entrar.</p>
+  <button id="go" disabled>Cargando motor…</button>
+  <p class="note">Sujeta el móvil como si fueras a caminar y apunta hacia el suelo unos metros por delante.
+    Si la cámara no abre, revisa el permiso del navegador.</p>
+</div>
+
+<div id="ov">
+  <div id="hud">
+    <span>tracking <b id="h-trk">—</b></span>
+    <span>fps <b id="h-fps">—</b></span>
+    <span>alto <b id="h-alto">—</b></span>
+    <span>anillo <b id="h-anillo">—</b></span>
+    <span>puntos <b id="h-pts">0</b></span>
+    <span>rumbo <b id="h-rumbo">—</b></span>
+  </div>
+  <div id="msg"></div>
+  <div id="panel">
+    <div id="asa" title="Plegar el panel"></div>
+    <div class="fila">
+      <input id="guia" type="text" value="10 adelante, 4 diag der" autocomplete="off" autocapitalize="off"
+             spellcheck="false" aria-label="Guía">
+      <button id="poner">Colocar</button>
+    </div>
+    <div class="fila chips" id="presets">
+      <button class="chip" data-g="10 adelante">10 al frente</button>
+      <button class="chip" data-g="10 adelante, 4 diag der">10 + 4 diag. der.</button>
+      <button class="chip" data-g="2 adelante, 3 diag der">2 + 3 diag. der.</button>
+      <button class="chip" data-g="8 adelante, 6 izquierda">8 + giro izq.</button>
+      <button class="chip" data-g="6 derecha">6 a la derecha</button>
+      <button class="chip" data-g="6 izquierda">6 a la izquierda</button>
+    </div>
+    <div class="fila">
+      <div class="seg" id="origen" role="group" aria-label="Origen del trazado">
+        <button data-m="pies" class="on">Desde mis pies</button>
+        <button data-m="rayo">Donde apunto</button>
+      </div>
+      <label class="sw"><input type="checkbox" id="t-anillo" checked>Anillo</label>
+      <label class="sw"><input type="checkbox" id="t-rejilla">Rejilla</label>
+    </div>
+    <label class="rango">suelo <input type="range" id="suelo" min="-60" max="60" value="0" step="1">
+      <span id="v-suelo">0 cm</span></label>
+    <div class="fila acciones">
+      <button class="ghost" id="borrar">Borrar</button>
+      <button class="ghost" id="salir">Salir</button>
+    </div>
+  </div>
+</div>
+
+<div id="verdad"><canvas id="cv-verdad" width="240" height="520"></canvas><small id="v-info">verdad</small></div>
+
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.min.js"}}
+</script>
+<!-- el motor, local: no habla con ningún servidor de 8th Wall -->
+<script src="xr/xr.js" data-preload-chunks="slam"></script>
+<script type="module">
+import * as THREE from "three";
+import { ArGuia } from "./nucleo/ar-xr8.js";
+import { parsearGuia, rumboDeDir } from "./nucleo/ar-guia.js";
+
+// El pipeline de three.js de 8th Wall busca window.THREE como global.
+window.THREE = THREE;
+
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const sim = params.get("sim");                       // ?sim=casa: espacio virtual
+if (sim) document.body.classList.add("sim");
+
+const ar = new ArGuia(THREE, {
+  camH: parseFloat(params.get("camh")) || undefined,
+  offsetCamara: params.has("offset") ? parseFloat(params.get("offset")) : undefined,
+  colorPunto: params.get("color") === "debug" ? 0xff00ff : undefined,
+  sinOrigen: params.has("sinorigen") || undefined,
+});
+if (params.has("camh")) $("#altura").value = Math.round(parseFloat(params.get("camh")) * 100);
+window.__ar = ar;                                    // para la simulación y para depurar
+
+// ------------------------------------------------------------------ arranque
+function marca(id, ok, txt){
+  const e = $("#" + id); e.textContent = txt ?? (ok ? "sí" : "no"); e.className = ok ? "yes" : "no";
+}
+let motorListo = false;
+function revisar(){
+  const b = $("#go");
+  b.disabled = !motorListo;
+  b.textContent = motorListo ? "Entrar" : "Cargando motor…";
+}
+function esperarMotor(){
+  if (!window.XR8){ addEventListener("xrloaded", esperarMotor, { once: true }); return; }
+  marca("c-xr", true, "v" + (window.XR8.version?.() ?? "?"));
+  let esperado = 0;
+  const poll = setInterval(() => {
+    if (window.XR8.XrController){
+      clearInterval(poll); marca("c-slam", true, "listo"); motorListo = true; revisar();
+    } else if ((esperado += 250) > 30000){
+      clearInterval(poll); marca("c-slam", false, "no cargó");
+    }
+  }, 250);
+}
+esperarMotor();
+marca("c-https", location.protocol === "https:" || location.hostname === "localhost", location.protocol.replace(":", ""));
+marca("c-mov", "DeviceMotionEvent" in window, "DeviceMotionEvent" in window ? "disponibles" : "no");
+
+function medirLienzo(canvas){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const W = innerWidth, H = innerHeight;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+}
+
+async function entrar(){
+  const canvas = $("#c");
+  // iOS pide permiso de movimiento y solo lo da dentro de un gesto
+  for (const E of [window.DeviceMotionEvent, window.DeviceOrientationEvent]){
+    try { if (E?.requestPermission) await E.requestPermission(); } catch {}
+  }
+  const alturaCm = parseFloat($("#altura").value);
+  if (alturaCm >= 80 && alturaCm <= 200) ar.op.camH = alturaCm / 100;
+  medirLienzo(canvas);
+  addEventListener("resize", () => medirLienzo(canvas));
+  addEventListener("orientationchange", () => setTimeout(() => medirLienzo(canvas), 250));
+  ar.alIniciar = () => { $("#pre").style.display = "none"; $("#ov").classList.add("on"); };
+  ar.alError = e => { $("#pre").style.display = "flex"; $("#go").disabled = true;
+    $("#go").textContent = "Error: " + (e?.message || e); $("#go").style.background = "var(--bad)"; };
+  ar.alActualizar = pintarHud;
+  ar.iniciar(canvas, { permitirCualquierDispositivo: !!sim });
+}
+$("#go").onclick = () => entrar();
+
+// ------------------------------------------------------------------ interfaz
+let tHud = 0;
+function pintarHud(s){
+  const t = performance.now();
+  if (t - tHud < 250) return; tHud = t;
+  const trk = $("#h-trk");
+  trk.textContent = s.tracking + (s.motivo && s.tracking !== "NORMAL" ? "·" + s.motivo : "");
+  trk.className = s.tracking === "NORMAL" ? "ok" : s.tracking === "LIMITED" ? "warn" : "";
+  $("#h-fps").textContent = s.fps ? s.fps.toFixed(0) : "—";
+  $("#h-alto").textContent = s.alto != null ? s.alto.toFixed(2) : "—";
+  $("#h-anillo").textContent = s.golpe ? s.golpe.distancia.toFixed(1) + " m" : "sin suelo";
+  $("#h-pts").textContent = s.puntos;
+  $("#h-rumbo").textContent = s.camara ? Math.round(((rumboDeDir(...ejeAdelante(s.camara.q)) * 180 / Math.PI) + 360) % 360) + "°" : "—";
+}
+function ejeAdelante(q){            // dirección de la cámara en el suelo, para mostrar el rumbo
+  const [x, y, z, w] = q, v = [0, 0, -1];
+  const tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]);
+  const f = [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
+  return Math.hypot(f[0], f[2]) > 0.3 ? [f[0], f[2]] : [0, -1];
+}
+
+let tMsg = 0;
+function aviso(txt, ms = 2200){
+  const m = $("#msg"); m.textContent = txt; m.classList.add("on");
+  clearTimeout(tMsg); tMsg = setTimeout(() => m.classList.remove("on"), ms);
+}
+
+function colocar(texto){
+  const tramos = parsearGuia(texto ?? $("#guia").value);
+  if (!tramos){ aviso("No entiendo la guía. Ejemplo: 10 adelante, 4 diag der"); return null; }
+  const r = ar.poner(tramos);
+  aviso(r.ok ? `${r.puntos} puntos colocados` : r.motivo);
+  return r;
+}
+window.__colocar = colocar;
+
+$("#poner").onclick = () => colocar();
+$("#guia").addEventListener("keydown", e => { if (e.key === "Enter") colocar(); });
+$("#presets").onclick = e => {
+  const g = e.target.closest("[data-g]")?.dataset.g; if (!g) return;
+  $("#guia").value = g; colocar(g);
+};
+$("#origen").onclick = e => {
+  const m = e.target.closest("[data-m]")?.dataset.m; if (!m) return;
+  ar.modo = m;
+  document.querySelectorAll("#origen button").forEach(b => b.classList.toggle("on", b.dataset.m === m));
+};
+$("#t-anillo").onchange = e => { ar.mostrarAnillo = e.target.checked; };
+$("#t-rejilla").onchange = e => { ar.mostrarRejilla = e.target.checked; };
+$("#suelo").oninput = e => {
+  const cm = +e.target.value;
+  $("#v-suelo").textContent = (cm > 0 ? "+" : "") + cm + " cm";
+  ar.ajustarSuelo(cm / 100);
+};
+$("#borrar").onclick = () => { ar.limpiar(); aviso("Guía borrada"); };
+$("#salir").onclick = () => { try { window.XR8.stop(); } catch {} location.reload(); };
+$("#asa").onclick = () => $("#panel").classList.toggle("cerrado");
+
+// ------------------------------------------------------------------ simulación
+if (sim){
+  const { instalarSimulacion } = await import("./sim/escena.js");
+  window.__sim = await instalarSimulacion({ THREE, ar, params, aviso });
+  if (params.get("auto") !== "0"){
+    const esperar = setInterval(() => { if (motorListo){ clearInterval(esperar); entrar(); } }, 200);
+  }
+}
+</script>
+</body>
+</html>
