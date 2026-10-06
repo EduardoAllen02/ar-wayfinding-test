@@ -211,9 +211,33 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
   const verdadActual = { puntos: [] };
 
   // ---- cámara falsa para 8th Wall
+  // El celular virtual tiene DOS objetivos traseros, como el del usuario: uno normal y un
+  // tele de 2.9x. Si 8th Wall no pide un deviceId, el navegador abre `defecto`
+  // (?defecto=tele reproduce el problema real: la vista sale ampliada).
+  const LENTES = { "sim-ancha": { etiqueta: "camera2 0, facing back", zoom: 1 },
+                   "sim-tele": { etiqueta: "camera2 2, facing back", zoom: 2.9 } };
+  const defecto = params.get("defecto") === "tele" ? "sim-tele" : "sim-ancha";
+  let lente = defecto;
+  function usarLente(id){
+    lente = id;
+    const f = 2 * Math.atan(Math.tan(fov * RAD / 2) / LENTES[id].zoom) / RAD;     // FOV vertical de ese objetivo
+    camV.fov = f; camT.fov = f; camV.updateProjectionMatrix(); camT.updateProjectionMatrix();
+  }
+  usarLente(defecto);
   const md = navigator.mediaDevices || (navigator.mediaDevices = {});
-  md.getUserMedia = async () => stream;
-  md.enumerateDevices = async () => [{ kind: "videoinput", label: "cámara virtual trasera", deviceId: "sim", groupId: "sim" }];
+  md.getUserMedia = async c => {
+    const pedido = c?.video?.deviceId?.exact ?? c?.video?.deviceId?.ideal;
+    usarLente(LENTES[pedido] ? pedido : defecto);
+    // un flujo NUEVO por llamada, como en un móvil: cerrar uno (una miniatura) no mata a los demás
+    const s = stream.clone();
+    try { Object.defineProperty(s.getVideoTracks()[0], "label", { value: LENTES[lente].etiqueta, configurable: true }); } catch {}
+    return s;
+  };
+  md.enumerateDevices = async () => [
+    { kind: "videoinput", label: LENTES["sim-ancha"].etiqueta, deviceId: "sim-ancha", groupId: "sim" },
+    { kind: "videoinput", label: "camera2 1, facing front", deviceId: "sim-frontal", groupId: "sim" },
+    { kind: "videoinput", label: LENTES["sim-tele"].etiqueta, deviceId: "sim-tele", groupId: "sim" },
+  ];
 
   // ---- trayectoria
   const { S, ordenes, fotos, duracion } = compilar(esc.guion.map(a => a.andar != null && velEscala !== 1 ? { ...a, v: (a.v ?? .8) * velEscala } : a), esc.inicio);
@@ -360,7 +384,7 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
     nombre, h, fov, duracion, esc, limites, stream, ordenes, fotos,
     estado: () => ({ t: tScript(), corriendo: est.corriendo, terminado: est.terminado, nOrdenes: est.ordenes.length, nFotos: est.fotos.length, fotosListas: est.fotos.filter(f => f.listo).length, muestras: est.muestras.length }),
     iniciar(){ est.t0 = performance.now(); est.corriendo = true; },
-    datos: () => ({ nombre, h, fov, duracion, ordenes: est.ordenes, muestras: est.muestras, pix: est.pix,
+    datos: () => ({ nombre, h, fov, lente, zoomLente: LENTES[lente].zoom, duracion, ordenes: est.ordenes, muestras: est.muestras, pix: est.pix,
       lienzo: { w: parseFloat(ar.renderer.domElement.style.width), h: parseFloat(ar.renderer.domElement.style.height), px: [ar.renderer.domElement.width, ar.renderer.domElement.height], vista: document.body.dataset.vista, fovV: ar.fovVertical(), video: ar.video }, fotos: est.fotos, camH: ar.op.camH, offset: ar.op.offsetCamara, paso: ar.op.paso }),
     fotoLista(nombreFoto){ const f = est.fotos.find(f => f.nombre === nombreFoto); if (f) f.listo = true; },
     pendientesFoto: () => est.fotos.filter(f => !f.listo).map(f => f.nombre),

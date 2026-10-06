@@ -37,6 +37,15 @@ input[type=text]{font:16px var(--mono);width:100%;padding:11px 12px;border-radiu
 .check b.yes{color:var(--ok)} .check b.no{color:var(--bad)} .check b.wait{color:var(--ink3)}
 .note{font-size:13px;color:var(--ink2);margin:0}
 #go{width:100%;padding:15px;font-size:17px}
+.camaras{display:grid;gap:8px}
+.camaras .fila{justify-content:space-between;font-size:14px;color:var(--ink2)}
+#cam-actual{color:var(--ink)}
+#rej-cam{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.tarj{display:grid;gap:5px;padding:6px;border-radius:12px;background:var(--panel2);border:2px solid var(--line);
+  color:var(--ink);font:11.5px var(--mono);text-align:left}
+.tarj .img{aspect-ratio:3/4;background:#05090a;border-radius:8px;overflow:hidden;display:grid;place-items:center;color:var(--ink3)}
+.tarj .img canvas{width:100%;height:100%;object-fit:cover;display:block}
+.tarj.on{border-color:var(--acc)}
 label.altura{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;color:var(--ink2)}
 label.altura input{width:84px;font:16px var(--mono);padding:9px 10px;border-radius:10px;background:#0a100f;
   border:1px solid var(--line);color:var(--ink);text-align:right}
@@ -101,6 +110,14 @@ body.sim #verdad{display:block}
   </label>
   <p class="note" style="margin-top:-8px">Con esto 1 unidad del AR vale 1 m de verdad (la separación de los puntos sale en metros).
     De pie suele ser 130–150; sentado o en silla, 90–110. Se fija al entrar.</p>
+  <div class="camaras">
+    <div class="fila"><span id="cam-actual">Cámara: automática</span>
+      <button class="ghost" id="ver-camaras" type="button">Elegir cámara</button></div>
+    <div id="rej-cam" hidden></div>
+    <p class="note" id="nota-cam">Si la vista sale <b>ampliada</b> (como un zoom 3x), el navegador abrió un objetivo de campo
+      cerrado y los puntos salen mal puestos. Toca <b>Elegir cámara</b> y escoge la que se vea <b>igual de amplia que la app
+      de cámara en 1x</b>.</p>
+  </div>
   <button id="go" disabled>Cargando motor…</button>
   <p class="note">Sujeta el móvil como si fueras a caminar y apunta hacia el suelo unos metros por delante.
     Si la cámara no abre, revisa el permiso del navegador.</p>
@@ -168,6 +185,7 @@ body.sim #verdad{display:block}
 import * as THREE from "three";
 import { ArGuia } from "./nucleo/ar-xr8.js";
 import { parsearGuia, rumboDeDir } from "./nucleo/ar-guia.js";
+import { instalarEnvoltorio, leerPreferencia, guardarPreferencia, listarCamaras, instantanea } from "./nucleo/camara.js";
 
 // El pipeline de three.js de 8th Wall busca window.THREE como global.
 window.THREE = THREE;
@@ -183,6 +201,7 @@ const ar = new ArGuia(THREE, {
   colorPunto: params.get("color") === "debug" ? 0xff00ff : undefined,
   sinOrigen: params.has("sinorigen") || undefined,
 });
+if (params.has("cam")) window.__camPref = { id: params.get("cam") };      // ?cam=<deviceId>, para depurar
 if (params.has("camh")) $("#altura").value = Math.round(parseFloat(params.get("camh")) * 100);
 window.__ar = ar;                                    // para la simulación y para depurar
 
@@ -270,7 +289,8 @@ function pintarHud(s){
   $("#h-pts").textContent = s.puntos;
   const ci = s.camInfo, v = s.video;
   $("#h-cam").textContent = (v ? v.w + "×" + v.h : "—") + (ci?.zoom != null ? " · zoom " + (+ci.zoom).toFixed(1) : "")
-    + (ci?.fps ? " · " + Math.round(ci.fps) + " fps" : "");
+    + (ci?.fps ? " · " + Math.round(ci.fps) + " fps" : "")
+    + (ci?.etiqueta ? " · " + ci.etiqueta.replace(/,?\s*facing back/i, "") : "");
   $("#h-fov").textContent = s.fovV ? s.fovV.toFixed(1) + "°" : "—";
   $("#zoom-min").hidden = !(ci && ci.zoomMax > ci.zoomMin);
   $("#h-rumbo").textContent = s.camara ? Math.round(((rumboDeDir(...ejeAdelante(s.camara.q)) * 180 / Math.PI) + 360) % 360) + "°" : "—";
@@ -328,6 +348,46 @@ $("#borrar").onclick = () => { ar.limpiar(); aviso("Guía borrada"); };
 $("#salir").onclick = () => { try { window.XR8.stop(); } catch {} location.reload(); };
 $("#asa").onclick = () => $("#panel").classList.toggle("cerrado");
 
+// ------------------------------------------------------------------ cámara
+function pintarCamActual(){
+  const p = window.__camPref ?? leerPreferencia();
+  $("#cam-actual").textContent = "Cámara: " + (p ? ((p.etiqueta || p.id || "elegida") + (p.w ? " · " + p.w + "×" + p.h : "")) : "automática");
+}
+function tarjeta(titulo, pref){
+  const t = document.createElement("button");
+  t.type = "button"; t.className = "tarj";
+  const img = document.createElement("div"); img.className = "img"; img.textContent = "…";
+  const cap = document.createElement("span"); cap.textContent = titulo;
+  t.append(img, cap);
+  t.onclick = () => {
+    guardarPreferencia(pref); window.__camPref = pref || undefined;
+    document.querySelectorAll("#rej-cam .tarj").forEach(x => x.classList.toggle("on", x === t));
+    pintarCamActual();
+  };
+  return { t, img, cap };
+}
+$("#ver-camaras").onclick = async () => {
+  const rej = $("#rej-cam");
+  rej.hidden = false; $("#nota-cam").hidden = false; rej.replaceChildren();
+  const auto = tarjeta("la que elija el navegador", null);
+  auto.img.textContent = "automática"; rej.append(auto.t);
+  try {
+    const cams = await listarCamaras();
+    if (!cams.length){ auto.cap.textContent += " (no pude listar cámaras)"; return; }
+    for (const cam of cams) for (const [w, h] of [[640, 480], [960, 720], [1280, 960]]){
+      const nombre = (cam.label || cam.deviceId.slice(0, 6)).replace(/,?\s*facing back/i, "");
+      const c = tarjeta(`${nombre} · ${w}×${h}`, { id: cam.deviceId, w, h, etiqueta: nombre });
+      rej.append(c.t);
+      try {
+        const r = await instantanea(cam.deviceId, w, h);
+        c.img.replaceChildren(r.canvas); c.cap.textContent = `${nombre} · pide ${w}×${h}, da ${r.real}`;
+        c.t.querySelector("canvas").style.aspectRatio = r.canvas.width + "/" + r.canvas.height;
+      } catch (e) { c.img.textContent = "no abre"; c.cap.textContent += " · " + (e?.name || "error"); }
+    }
+  } catch (e) { auto.cap.textContent = "No pude abrir las cámaras: " + (e?.message || e); }
+};
+pintarCamActual();
+
 // ------------------------------------------------------------------ simulación
 if (sim){
   const { instalarSimulacion } = await import("./sim/escena.js");
@@ -336,6 +396,8 @@ if (sim){
     const esperar = setInterval(() => { if (motorListo){ clearInterval(esperar); entrar(); } }, 200);
   }
 }
+// el parche va el último: así envuelve la cámara real o, en simulación, la falsa
+instalarEnvoltorio();
 </script>
 </body>
 </html>
