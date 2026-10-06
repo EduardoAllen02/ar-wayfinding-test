@@ -17,7 +17,12 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
   font:15px/1.4 var(--sans);touch-action:manipulation}
-canvas#c{position:fixed;left:0;top:0;display:block;background:#000}
+/* El tamaño CSS del lienzo lo fija ESTA regla con !important. 8th Wall hace
+   renderer.setSize(canvas.width, canvas.height), que escribe el tamaño del BÚFER
+   (en píxeles del dispositivo) como tamaño CSS: con una densidad de 2.25 el lienzo
+   se hace 2.25 veces más grande que la pantalla y solo se ve su esquina, como un zoom. */
+canvas#c{position:fixed;display:block;background:#000;
+  width:var(--lw,100vw)!important;height:var(--lh,100vh)!important;left:var(--lx,0px)!important;top:0!important}
 button{font:inherit;color:inherit;border:0;border-radius:10px;padding:11px 14px;cursor:pointer;
   background:var(--acc);color:#04130e;font-weight:600}
 button.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);font-weight:500}
@@ -67,7 +72,12 @@ label.altura input{width:84px;font:16px var(--mono);padding:9px 10px;border-radi
 #panel{position:absolute;left:0;right:0;bottom:0;padding:12px 12px max(12px,env(safe-area-inset-bottom));
   background:var(--panel);backdrop-filter:blur(12px);border-radius:18px 18px 0 0;
   display:grid;gap:10px;border-top:1px solid var(--line);transition:transform .25s}
-#panel.cerrado{transform:translateY(calc(100% - 44px))}
+body.limpio #panel{transform:translateY(105%)}
+body.limpio #hud{opacity:0;pointer-events:none}
+#mostrar{position:absolute;left:50%;bottom:max(14px,env(safe-area-inset-bottom));transform:translateX(-50%);
+  padding:9px 18px;border-radius:999px;background:#000b;color:var(--ink);border:1px solid var(--line);
+  font-weight:600;backdrop-filter:blur(8px);display:none}
+body.limpio #mostrar{display:block}
 #asa{justify-self:center;width:54px;height:6px;border-radius:3px;background:var(--ink3);margin:-2px 0 2px;cursor:pointer}
 .fila{display:flex;gap:8px;align-items:center}
 .fila.chips{flex-wrap:wrap}
@@ -135,6 +145,7 @@ body.sim #verdad{display:block}
     <span class="fila2">fov <b id="h-fov">—</b></span>
   </div>
   <div id="msg"></div>
+  <button id="mostrar" type="button">▲ Menú</button>
   <div id="panel">
     <div id="asa" title="Plegar el panel"></div>
     <div class="fila">
@@ -235,6 +246,7 @@ marca("c-mov", "DeviceMotionEvent" in window, "DeviceMotionEvent" in window ? "d
 // así 8th Wall lo pinta sin recortar (con otra proporción lo escala hasta llenar y
 // recorta los lados: ves menos y todo parece ampliado). El tamaño CSS y el del búfer
 // llevan la misma proporción, si no la imagen sale estirada.
+let lienzoCss = null;
 let vista = params.get("vista") || (() => { try { return localStorage.getItem("vista"); } catch { return null; } })() || "completa";
 function medirLienzo(){
   const canvas = $("#c");
@@ -248,9 +260,10 @@ function medirLienzo(){
     if (W / H > asp){ h = H; w = Math.round(H * asp); x = Math.round((W - w) / 2); }
     else { w = W; h = Math.round(W / asp); }
   }
-  canvas.style.width = w + "px"; canvas.style.height = h + "px";
-  canvas.style.left = x + "px"; canvas.style.top = "0px";
+  const r = document.documentElement.style;
+  r.setProperty("--lw", w + "px"); r.setProperty("--lh", h + "px"); r.setProperty("--lx", x + "px");
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  lienzoCss = { w, h };
   document.body.dataset.vista = vista;
   document.querySelectorAll("#vista button").forEach(b => b.classList.toggle("on", b.dataset.v === vista));
 }
@@ -261,6 +274,7 @@ async function entrar(){
   for (const E of [window.DeviceMotionEvent, window.DeviceOrientationEvent]){
     try { if (E?.requestPermission) await E.requestPermission(); } catch {}
   }
+  try { await (document.documentElement.requestFullscreen?.() ?? Promise.resolve()); } catch {}   // Android; iOS no la tiene
   const alturaCm = parseFloat($("#altura").value);
   if (alturaCm >= 80 && alturaCm <= 200) ar.op.camH = alturaCm / 100;
   medirLienzo();
@@ -291,7 +305,14 @@ function pintarHud(s){
   $("#h-cam").textContent = (v ? v.w + "×" + v.h : "—") + (ci?.zoom != null ? " · zoom " + (+ci.zoom).toFixed(1) : "")
     + (ci?.fps ? " · " + Math.round(ci.fps) + " fps" : "")
     + (ci?.etiqueta ? " · " + ci.etiqueta.replace(/,?\s*facing back/i, "") : "");
-  $("#h-fov").textContent = s.fovV ? s.fovV.toFixed(1) + "°" : "—";
+  const cv = document.querySelector("#c"), caja = cv.getBoundingClientRect();
+  let enc = "—";
+  if (v){   // qué parte del fotograma cabe en el lienzo (cover): 100×100 % = sin recorte
+    const asp = Math.min(v.w, v.h) / Math.max(v.w, v.h), ac = caja.width / caja.height;
+    enc = Math.round(Math.min(1, ac / asp) * 100) + "×" + Math.round(Math.min(1, asp / ac) * 100) + "%";
+  }
+  $("#h-fov").textContent = (s.fovV ? s.fovV.toFixed(1) + "°" : "—") + " · lienzo " + Math.round(caja.width) + "×" + Math.round(caja.height)
+    + " (buf " + cv.width + "×" + cv.height + ") · se ve " + enc;
   $("#zoom-min").hidden = !(ci && ci.zoomMax > ci.zoomMin);
   $("#h-rumbo").textContent = s.camara ? Math.round(((rumboDeDir(...ejeAdelante(s.camara.q)) * 180 / Math.PI) + 360) % 360) + "°" : "—";
 }
@@ -346,7 +367,9 @@ $("#suelo").oninput = e => {
 };
 $("#borrar").onclick = () => { ar.limpiar(); aviso("Guía borrada"); };
 $("#salir").onclick = () => { try { window.XR8.stop(); } catch {} location.reload(); };
-$("#asa").onclick = () => $("#panel").classList.toggle("cerrado");
+const limpio = v => document.body.classList.toggle("limpio", v);
+$("#asa").onclick = () => limpio(true);
+$("#mostrar").onclick = () => limpio(false);
 
 // ------------------------------------------------------------------ cámara
 function pintarCamActual(){

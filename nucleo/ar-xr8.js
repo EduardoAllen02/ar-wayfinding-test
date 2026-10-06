@@ -287,8 +287,7 @@ export class ArGuia {
   aPantalla(p){
     const THREE = this.THREE;
     const v = new THREE.Vector3(p[0], p[1], p[2]).project(this.camera);
-    const c = this.renderer.domElement;
-    const w = parseFloat(c.style.width) || c.clientWidth, h = parseFloat(c.style.height) || c.clientHeight;
-    return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, z: v.z };
+    const r = this.renderer.domElement.getBoundingClientRect();     // el tamaño REAL en pantalla, no el de style
+    return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, z: v.z };
   }
 }

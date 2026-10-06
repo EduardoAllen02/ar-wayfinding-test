@@ -357,7 +357,7 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
       // lo que se ve en pantalla: dónde dibuja 8th Wall cada punto frente a dónde debería estar
       if (nFrames % 6 === 0 && est.ordenes.length && ar.puntos.length){
         const k = est.ordenes.length - 1, o = est.ordenes[k];
-        const cv2 = ar.renderer.domElement, cw = parseFloat(cv2.style.width) || cv2.clientWidth, ch = parseFloat(cv2.style.height) || cv2.clientHeight;
+        const cv2 = ar.renderer.domElement, rc = cv2.getBoundingClientRect(), cw = rc.width, ch = rc.height;
         const n = Math.min(ar.puntos.length, o.verdad.puntos.length);
         for (const i of new Set([0, n >> 1, n - 1])){
           const pa = ar.puntos[i], pv = o.verdad.puntos[i];
@@ -385,7 +385,7 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
     estado: () => ({ t: tScript(), corriendo: est.corriendo, terminado: est.terminado, nOrdenes: est.ordenes.length, nFotos: est.fotos.length, fotosListas: est.fotos.filter(f => f.listo).length, muestras: est.muestras.length }),
     iniciar(){ est.t0 = performance.now(); est.corriendo = true; },
     datos: () => ({ nombre, h, fov, lente, zoomLente: LENTES[lente].zoom, duracion, ordenes: est.ordenes, muestras: est.muestras, pix: est.pix,
-      lienzo: { w: parseFloat(ar.renderer.domElement.style.width), h: parseFloat(ar.renderer.domElement.style.height), px: [ar.renderer.domElement.width, ar.renderer.domElement.height], vista: document.body.dataset.vista, fovV: ar.fovVertical(), video: ar.video }, fotos: est.fotos, camH: ar.op.camH, offset: ar.op.offsetCamara, paso: ar.op.paso }),
+      lienzo: { w: Math.round(ar.renderer.domElement.getBoundingClientRect().width), h: Math.round(ar.renderer.domElement.getBoundingClientRect().height), px: [ar.renderer.domElement.width, ar.renderer.domElement.height], vista: document.body.dataset.vista, fovV: ar.fovVertical(), video: ar.video }, fotos: est.fotos, camH: ar.op.camH, offset: ar.op.offsetCamara, paso: ar.op.paso }),
     fotoLista(nombreFoto){ const f = est.fotos.find(f => f.nombre === nombreFoto); if (f) f.listo = true; },
     pendientesFoto: () => est.fotos.filter(f => !f.listo).map(f => f.nombre),
     pose, rCam, camV,
