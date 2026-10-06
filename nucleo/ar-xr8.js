@@ -39,6 +39,8 @@ export class ArGuia {
     this.golpe = null;              // último impacto del rayo (con offset)
     this.alActualizar = null;       // callback por fotograma, para la interfaz
     this.errores = [];
+    this.video = null;              // {w, h}: el fotograma que entrega la cámara
+    this.stream = null; this.camInfo = null;
     this._t = 0; this._n = 0;
   }
 
@@ -72,8 +74,10 @@ export class ArGuia {
         console.error("[ar]", err);
         this.alError?.(err);
       },
-      onCameraStatusChange: ({ status }) => {
+      onCameraStatusChange: ({ status, stream, video }) => {
         this.camara = status;
+        if (status === "hasStream" && stream){ this.stream = stream; this._leerCamara(); }
+        if (status === "hasVideo" && video?.videoWidth) this._fijarVideo(video.videoWidth, video.videoHeight);
         if (status === "failed") this.alError?.(new Error("Cámara denegada o no disponible"));
       },
     };
@@ -83,7 +87,8 @@ export class ArGuia {
     const THREE = this.THREE;
     return {
       name: "ar-guia",
-      onStart: () => {
+      onStart: args => {
+        if (args?.videoWidth) this._fijarVideo(args.videoWidth, args.videoHeight);
         const xr = window.XR8.Threejs.xrScene();
         this.scene = xr.scene; this.camera = xr.camera; this.renderer = xr.renderer;
         this.scene.add(new THREE.HemisphereLight(0xffffff, 0x223333, 2.4));
@@ -134,6 +139,10 @@ export class ArGuia {
         this.alIniciar?.();
       },
 
+      // el fotograma de la cámara (o su tamaño al girar el móvil): la página ajusta
+      // el lienzo a SU proporción para no recortar el campo de visión
+      onVideoSizeChange: ({ videoWidth, videoHeight }) => this._fijarVideo(videoWidth, videoHeight),
+
       onUpdate: ({ processCpuResult }) => {
         const st = processCpuResult?.reality?.trackingStatus;
         if (st) this.tracking = st;
@@ -141,6 +150,40 @@ export class ArGuia {
         this._actualizar();
       },
     };
+  }
+
+  // ------------------------------------------------------------ cámara
+  _fijarVideo(w, h){
+    if (!w || !h || (this.video && this.video.w === w && this.video.h === h)) return;
+    this.video = { w, h };
+    this.alVideo?.(this.video);
+  }
+
+  /** Lo que el navegador dio de verdad: resolución, fps y zoom (si el móvil lo expone). */
+  _leerCamara(){
+    const t = this.stream?.getVideoTracks?.()[0];
+    if (!t) return;
+    let s = {}, c = {};
+    try { s = t.getSettings?.() ?? {}; } catch {}
+    try { c = t.getCapabilities?.() ?? {}; } catch {}
+    this.camInfo = { w: s.width, h: s.height, fps: s.frameRate, zoom: s.zoom,
+                     zoomMin: c.zoom?.min, zoomMax: c.zoom?.max, etiqueta: t.label || "" };
+  }
+
+  /** Pone el zoom de la cámara al mínimo (el campo más ancho que da el móvil). */
+  async zoomMinimo(){
+    const t = this.stream?.getVideoTracks?.()[0];
+    const z = t?.getCapabilities?.()?.zoom;
+    if (!z) return false;
+    await t.applyConstraints({ advanced: [{ zoom: z.min }] });
+    this._leerCamara();
+    return true;
+  }
+
+  /** FOV vertical que 8th Wall asume ahora mismo (el de la matriz de proyección). */
+  fovVertical(){
+    const e = this.camera?.projectionMatrix?.elements;
+    return e ? 2 * Math.atan(1 / e[5]) * 180 / Math.PI : null;
   }
 
   // ------------------------------------------------------------ por fotograma
@@ -236,6 +279,7 @@ export class ArGuia {
       alto: pose ? pose.pos[1] - this.suelo : null,
       golpe: this.golpe, puntos: this.puntos.length, guia: this.guia,
       modo: this.modo, errores: this.errores,
+      video: this.video, camInfo: this.camInfo, fovV: this.fovVertical(),
     };
   }
 

@@ -49,6 +49,7 @@ label.altura input{width:84px;font:16px var(--mono);padding:9px 10px;border-radi
   display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 11px;border-radius:12px;
   background:#000a;backdrop-filter:blur(8px);font:12px var(--mono);color:var(--ink2);pointer-events:none}
 #hud b{color:var(--ink);font-weight:600}
+#hud .fila2{font-size:11px;color:var(--ink3)}
 #hud b.ok{color:var(--ok)} #hud b.warn{color:var(--warn)} #hud b.bad{color:var(--bad)}
 #msg{position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:84%;padding:10px 14px;
   border-radius:12px;background:#000c;text-align:center;font-size:14px;opacity:0;transition:opacity .25s;
@@ -113,6 +114,8 @@ body.sim #verdad{display:block}
     <span>anillo <b id="h-anillo">—</b></span>
     <span>puntos <b id="h-pts">0</b></span>
     <span>rumbo <b id="h-rumbo">—</b></span>
+    <span class="fila2">cámara <b id="h-cam">—</b></span>
+    <span class="fila2">fov <b id="h-fov">—</b></span>
   </div>
   <div id="msg"></div>
   <div id="panel">
@@ -137,6 +140,13 @@ body.sim #verdad{display:block}
       </div>
       <label class="sw"><input type="checkbox" id="t-anillo" checked>Anillo</label>
       <label class="sw"><input type="checkbox" id="t-rejilla">Rejilla</label>
+    </div>
+    <div class="fila">
+      <div class="seg" id="vista" role="group" aria-label="Vista de la cámara">
+        <button data-v="completa" class="on">Vista completa</button>
+        <button data-v="llenar">Llenar pantalla</button>
+      </div>
+      <button class="ghost" id="zoom-min" hidden>Campo máx.</button>
     </div>
     <label class="rango">suelo <input type="range" id="suelo" min="-60" max="60" value="0" step="1">
       <span id="v-suelo">0 cm</span></label>
@@ -202,11 +212,28 @@ esperarMotor();
 marca("c-https", location.protocol === "https:" || location.hostname === "localhost", location.protocol.replace(":", ""));
 marca("c-mov", "DeviceMotionEvent" in window, "DeviceMotionEvent" in window ? "disponibles" : "no");
 
-function medirLienzo(canvas){
+// «Vista completa»: el lienzo tiene la MISMA proporción que el fotograma de la cámara,
+// así 8th Wall lo pinta sin recortar (con otra proporción lo escala hasta llenar y
+// recorta los lados: ves menos y todo parece ampliado). El tamaño CSS y el del búfer
+// llevan la misma proporción, si no la imagen sale estirada.
+let vista = params.get("vista") || (() => { try { return localStorage.getItem("vista"); } catch { return null; } })() || "completa";
+function medirLienzo(){
+  const canvas = $("#c");
   const dpr = Math.min(devicePixelRatio || 1, 2);
   const W = innerWidth, H = innerHeight;
-  canvas.style.width = W + "px"; canvas.style.height = H + "px";
-  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  let w = W, h = H, x = 0;
+  if (vista === "completa"){
+    const v = ar.video || { w: 4, h: 3 };                      // hasta saber el real, 4:3
+    const lado = Math.min(v.w, v.h), largo = Math.max(v.w, v.h);
+    const asp = H >= W ? lado / largo : largo / lado;          // ancho / alto, tal como se ve
+    if (W / H > asp){ h = H; w = Math.round(H * asp); x = Math.round((W - w) / 2); }
+    else { w = W; h = Math.round(W / asp); }
+  }
+  canvas.style.width = w + "px"; canvas.style.height = h + "px";
+  canvas.style.left = x + "px"; canvas.style.top = "0px";
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  document.body.dataset.vista = vista;
+  document.querySelectorAll("#vista button").forEach(b => b.classList.toggle("on", b.dataset.v === vista));
 }
 
 async function entrar(){
@@ -217,9 +244,10 @@ async function entrar(){
   }
   const alturaCm = parseFloat($("#altura").value);
   if (alturaCm >= 80 && alturaCm <= 200) ar.op.camH = alturaCm / 100;
-  medirLienzo(canvas);
-  addEventListener("resize", () => medirLienzo(canvas));
-  addEventListener("orientationchange", () => setTimeout(() => medirLienzo(canvas), 250));
+  medirLienzo();
+  ar.alVideo = () => medirLienzo();
+  addEventListener("resize", () => medirLienzo());
+  addEventListener("orientationchange", () => setTimeout(() => medirLienzo(), 250));
   ar.alIniciar = () => { $("#pre").style.display = "none"; $("#ov").classList.add("on"); };
   ar.alError = e => { $("#pre").style.display = "flex"; $("#go").disabled = true;
     $("#go").textContent = "Error: " + (e?.message || e); $("#go").style.background = "var(--bad)"; };
@@ -240,6 +268,11 @@ function pintarHud(s){
   $("#h-alto").textContent = s.alto != null ? s.alto.toFixed(2) : "—";
   $("#h-anillo").textContent = s.golpe ? s.golpe.distancia.toFixed(1) + " m" : "sin suelo";
   $("#h-pts").textContent = s.puntos;
+  const ci = s.camInfo, v = s.video;
+  $("#h-cam").textContent = (v ? v.w + "×" + v.h : "—") + (ci?.zoom != null ? " · zoom " + (+ci.zoom).toFixed(1) : "")
+    + (ci?.fps ? " · " + Math.round(ci.fps) + " fps" : "");
+  $("#h-fov").textContent = s.fovV ? s.fovV.toFixed(1) + "°" : "—";
+  $("#zoom-min").hidden = !(ci && ci.zoomMax > ci.zoomMin);
   $("#h-rumbo").textContent = s.camara ? Math.round(((rumboDeDir(...ejeAdelante(s.camara.q)) * 180 / Math.PI) + 360) % 360) + "°" : "—";
 }
 function ejeAdelante(q){            // dirección de la cámara en el suelo, para mostrar el rumbo
@@ -277,6 +310,15 @@ $("#origen").onclick = e => {
 };
 $("#t-anillo").onchange = e => { ar.mostrarAnillo = e.target.checked; };
 $("#t-rejilla").onchange = e => { ar.mostrarRejilla = e.target.checked; };
+$("#vista").onclick = e => {
+  const v = e.target.closest("[data-v]")?.dataset.v; if (!v) return;
+  vista = v; try { localStorage.setItem("vista", v); } catch {}
+  medirLienzo();
+};
+$("#zoom-min").onclick = async () => {
+  try { aviso((await ar.zoomMinimo()) ? "Zoom de la cámara al mínimo" : "Este móvil no deja cambiar el zoom"); }
+  catch (e) { aviso("No se pudo: " + (e?.message || e)); }
+};
 $("#suelo").oninput = e => {
   const cm = +e.target.value;
   $("#v-suelo").textContent = (cm > 0 ? "+" : "") + cm + " cm";

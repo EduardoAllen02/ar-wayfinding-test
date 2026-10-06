@@ -275,7 +275,7 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
   }
 
   // ---- reloj y bucles
-  const est = { t0: null, corriendo: false, terminado: false, muestras: [], ordenes: [], fotos: [], cola: [...ordenes], colaFotos: [...fotos] };
+  const est = { t0: null, corriendo: false, terminado: false, muestras: [], pix: [], ordenes: [], fotos: [], cola: [...ordenes], colaFotos: [...fotos] };
   const tScript = () => est.t0 == null ? 0 : (performance.now() - est.t0) / 1000;
   window.addEventListener("beforeunload", () => {});
 
@@ -330,6 +330,22 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
         document.title = "orden " + o.guia;
       }
       while (est.colaFotos.length && est.colaFotos[0].t <= t){ est.fotos.push({ ...est.colaFotos.shift(), real: t, listo: false }); }
+      // lo que se ve en pantalla: dónde dibuja 8th Wall cada punto frente a dónde debería estar
+      if (nFrames % 6 === 0 && est.ordenes.length && ar.puntos.length){
+        const k = est.ordenes.length - 1, o = est.ordenes[k];
+        const cv2 = ar.renderer.domElement, cw = parseFloat(cv2.style.width) || cv2.clientWidth, ch = parseFloat(cv2.style.height) || cv2.clientHeight;
+        const n = Math.min(ar.puntos.length, o.verdad.puntos.length);
+        for (const i of new Set([0, n >> 1, n - 1])){
+          const pa = ar.puntos[i], pv = o.verdad.puntos[i];
+          if (!pa || !pv) continue;
+          const a = ar.aPantalla([pa.x, pa.y + ar.suelo, pa.z]);
+          const v = new THREE.Vector3(pv.x, pv.y, pv.z).project(camT);
+          const uvT = [(v.x + 1) / 2, (1 - v.y) / 2], uvA = [a.x / cw, a.y / ch];
+          const dentro = u => u[0] > 0.02 && u[0] < 0.98 && u[1] > 0.02 && u[1] < 0.98;
+          if (a.z < 1 && v.z < 1 && dentro(uvT) && dentro(uvA))
+            est.pix.push({ t, o: k, i, ar: uvA, v: uvT, dx: (uvA[0] - uvT[0]) * cw, dy: (uvA[1] - uvT[1]) * ch });
+        }
+      }
       // muestra para el ajuste: verdad vs lo que cree 8th Wall
       if (ar.iniciado){
         const e = ar.estado();
@@ -344,7 +360,8 @@ export async function instalarSimulacion({ THREE, ar, params, aviso }){
     nombre, h, fov, duracion, esc, limites, stream, ordenes, fotos,
     estado: () => ({ t: tScript(), corriendo: est.corriendo, terminado: est.terminado, nOrdenes: est.ordenes.length, nFotos: est.fotos.length, fotosListas: est.fotos.filter(f => f.listo).length, muestras: est.muestras.length }),
     iniciar(){ est.t0 = performance.now(); est.corriendo = true; },
-    datos: () => ({ nombre, h, fov, duracion, ordenes: est.ordenes, muestras: est.muestras, fotos: est.fotos, camH: ar.op.camH, offset: ar.op.offsetCamara, paso: ar.op.paso }),
+    datos: () => ({ nombre, h, fov, duracion, ordenes: est.ordenes, muestras: est.muestras, pix: est.pix,
+      lienzo: { w: parseFloat(ar.renderer.domElement.style.width), h: parseFloat(ar.renderer.domElement.style.height), px: [ar.renderer.domElement.width, ar.renderer.domElement.height], vista: document.body.dataset.vista, fovV: ar.fovVertical(), video: ar.video }, fotos: est.fotos, camH: ar.op.camH, offset: ar.op.offsetCamara, paso: ar.op.paso }),
     fotoLista(nombreFoto){ const f = est.fotos.find(f => f.nombre === nombreFoto); if (f) f.listo = true; },
     pendientesFoto: () => est.fotos.filter(f => !f.listo).map(f => f.nombre),
     pose, rCam, camV,
